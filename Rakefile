@@ -12,8 +12,8 @@ require 'rake'
 require 'jeweler'
 Jeweler::Tasks.new do |gem|
   # gem is a Gem::Specification... see http://docs.rubygems.org/read/chapter/20 for more options
-  gem.name = "rs_ebs"
-  gem.homepage = "http://github.com/rgeyer/rs_ebs"
+  gem.name = "ebs_conductor"
+  gem.homepage = "http://github.com/rgeyer/ebs_conductor"
   gem.license = "MIT"
   gem.summary = %Q{A RightScale/Amazon EC2 EBS library}
   gem.description = %Q{TODO: longer description of your gem}
@@ -47,7 +47,7 @@ Rake::RDocTask.new do |rdoc|
   version = File.exist?('VERSION') ? File.read('VERSION') : ""
 
   rdoc.rdoc_dir = 'rdoc'
-  rdoc.title = "rs_ebs #{version}"
+  rdoc.title = "ebs_conductor #{version}"
   rdoc.rdoc_files.include('README*')
   rdoc.rdoc_files.include('lib/**/*.rb')
 end
