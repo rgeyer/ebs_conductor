@@ -4,6 +4,8 @@ source "http://rubygems.org"
 #   gem "activesupport", ">= 2.3.5"
 
 gem "fog", "~> 0.8.2"
+gem "skeme", ">= 0"
+gem "rest_connection", ">= 0.0.21"
 
 # Add dependencies to develop your gem here.
 # Include everything needed to run rake, tests, features, etc.
