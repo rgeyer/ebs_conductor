@@ -14,6 +14,7 @@
 require 'skeme'
 require 'fog'
 require 'rest_connection'
+require 'yaml'
 
 module EbsConductor
   class EbsConductor
@@ -104,6 +105,35 @@ module EbsConductor
       nil
     end
 
+    def find_volumes_by_lineage(lineage)
+      vols = {}
+      @@fog_aws_computes.each do |key,val|
+        volz = val.volumes
+        vols[key] = volz.all('tag-key' => lineage_tag(lineage))
+      end
+
+      vols
+    end
+
+    def find_snapshots_in_lineage(lineage, options={:region => nil})
+      snaps = {}
+      if options[:region] != nil
+        snapshots_in_lineage = @@fog_aws_computes[options[:region]].snapshots.all('tag-key' => lineage_tag(lineage))
+        if snapshots_in_lineage
+          snaps[options[:region]] = snapshots_in_lineage
+        end
+      else
+        @@fog_aws_computes.each do |region,compute|
+          snapshots_in_lineage = compute.snapshots.all('tag-key' => lineage_tag(lineage))
+          if snapshots_in_lineage
+            snaps[region] = snapshots_in_lineage
+          end
+        end
+      end
+
+      snaps
+    end
+
     def attach_from_lineage(instance_id, lineage, size_in_gb, device, options={:timeout => @@default_timeout, :snapshot_id => nil, :tags => nil})
       # Explore our options.
       # if snapshot_id is supplied and is a snapshot id, try to create & attach it
@@ -162,39 +192,65 @@ module EbsConductor
       new_vol.id
     end
 
-    # TODO: Should lineage be optional? If so we would try to determine it by the volume's lineage..
-    # TODO: Maybe there should be two options, snapshot a lineage (automatically determines volume from lineage tag) and snapshot a volume, allowing you to define (and override) the lineage
-    def snapshot_volume(volume_id, lineage, options={:timeout => @@default_timeout, :tags => nil})
-      vol_hash = find_volume_by_id(volume_id)
-      if vol_hash
-        vol = vol_hash[:volume]
-        region = vol_hash[:region]
+    # Snapshot history to keep is unique to each region.  If a volume_id is specified, the new snapshot will be tagged
+    # with the supplied lineage, regardless of the volume's current lineage.  This effectively allows you to override the lineage of a volume
+    #
+    def snapshot_lineage(lineage, options={:timeout => @@default_timeout, :tags => nil, :volume_id => nil, :history_to_keep => nil})
+      vol_hash = {}
+      tag_hash ={}
+      if options[:volume_id]
+        vol_by_id = find_volume_by_id(options[:volume_id])
+        vol_hash[vol_by_id[:region]] = [vol_by_id[:volume]]
+      else
+        vol_hash = find_volumes_by_lineage(lineage)
+      end
 
-        description = "Created by EBS Conductor for the (#{lineage}) lineage while the volume was attached to #{vol.server_id}"
+      vol_hash.each do |region,vols|
+        # TODO: warn about multiples in a region?
+        vols.each do |vol|
+          description = "Created by EBS Conductor for the (#{lineage}) lineage while the volume was #{vol.server_id ? "attached to #{vol.server_id}" : "detatched"}"
 
-        excon_resp = @@fog_aws_computes[region].create_snapshot(volume_id, description)
-        snapshot_id = excon_resp.body['snapshotId']
+          excon_resp = @@fog_aws_computes[region].create_snapshot(vol.id, description)
+          snapshot_id = excon_resp.body['snapshotId']
 
-        timeout_message = "Timed out waiting for EBS snapshot to start from volume (#{volume_id}).  Elapsed time was #{options[:timeout]}"
-        block_until_timeout(timeout_message, options[:timeout]) {
-          keep_baking = false
+          tags = options[:tags] || []
+          tags << lineage_tag(lineage)
+          tag_hash[snapshot_id] = {:snapshot_tags => tags, :volume_tags => vol.tags.keys}
+        end
+      end
 
-          if @@have_rs
-            snap = Ec2EbsSnapshot.find(:first) { |snap| snap.aws_id == snapshot_id }
-            keep_baking = (snap == nil)
-          end
+      timeout_message = "Timed out waiting for EBS snapshots to start from volumes [#{vol_hash.collect{|key,val| val}}].  Elapsed time was #{options[:timeout]}"
+      block_until_timeout(timeout_message, options[:timeout]) {
+        keep_baking = false
 
-          keep_baking
-        }
+        if @@have_rs
+          snaps = Ec2EbsSnapshot.find(:all) { |snap| tag_hash.keys.include? snap.aws_id }
+          keep_baking = (snaps.count != tag_hash.keys.count)
+        end
 
-        @@skeme.set_tag({:ec2_ebs_snapshot_id => snapshot_id, :tag => lineage_tag(lineage)})
-        if options[:tags] && options[:tags].kind_of?(Array)
-          options[:tags].each do |tag|
-            @@skeme.set_tag({:ec2_ebs_snapshot_id => snapshot_id, :tag => tag})
+        keep_baking
+      }
+
+      # TODO: check for existing lineage which may be getting overwritten. Maybe warn, maybe just tag accordingly?
+      tag_hash.each do |key,val|
+        val[:snapshot_tags].each do |tag|
+          @@skeme.set_tag(:ec2_ebs_snapshot_id => key, :tag => tag)
+        end
+      end
+
+      if options[:history_to_keep] && options[:history_to_keep].kind_of?(Integer)
+        @@fog_aws_computes.keys.each do |region|
+          snaps = find_snapshots_in_lineage(lineage, {:region => region})
+          snaps.each do |key,val|
+            val.sort! { |a,b| a.created_at <=> b.created_at }
+            delete_count = (val.count - options[:history_to_keep])-1
+            (0..delete_count).each do |idx|
+              vol = val[idx]
+              vol.destroy
+              @@logger.info("Deleted snapshot #{vol.id}")
+            end unless delete_count <= -1
           end
         end
-      else
-        raise "EBS Volume #{volume_id} was not found"
       end
     end
 
