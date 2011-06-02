@@ -16,7 +16,7 @@ Jeweler::Tasks.new do |gem|
   gem.homepage = "http://github.com/rgeyer/ebs_conductor"
   gem.license = "MIT"
   gem.summary = %Q{A RightScale/Amazon EC2 EBS library}
-  gem.description = %Q{TODO: longer description of your gem}
+  gem.description = IO.read(File.join(File.dirname(__FILE__), "README.rdoc"))
   gem.email = "me@ryangeyer.com"
   gem.authors = ["Ryan Geyer"]
   # Include your dependencies below. Runtime dependencies are required when using your gem,
