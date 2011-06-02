@@ -206,14 +206,18 @@ module Rgeyer
         vol_hash.each do |region,vols|
           # TODO: warn about multiples in a region?
           vols.each do |vol|
-            description = "Created by EBS Conductor for the (#{lineage}) lineage while the volume was #{vol.server_id ? "attached to #{vol.server_id}" : "detatched"}"
+            if ["available", "in-use"].include? vol.status
+              description = "Created by EBS Conductor for the (#{lineage}) lineage while the volume was #{vol.server_id ? "attached to #{vol.server_id}" : "detatched"}"
 
-            excon_resp = @@fog_aws_computes[region].create_snapshot(vol.id, description)
-            snapshot_id = excon_resp.body['snapshotId']
+              excon_resp = @@fog_aws_computes[region].create_snapshot(vol.id, description)
+              snapshot_id = excon_resp.body['snapshotId']
 
-            tags = options[:tags] || []
-            tags << lineage_tag(lineage)
-            tag_hash[snapshot_id] = {:snapshot_tags => tags, :volume_tags => vol.tags.keys}
+              tags = options[:tags] || []
+              tags << lineage_tag(lineage)
+              tag_hash[snapshot_id] = {:snapshot_tags => tags, :volume_tags => vol.tags.keys}
+            else
+              @@logger.warn("Volume (#{vol.id}) had a status of (#{vol.status}).  A snapshot could not be created..")
+            end
           end
         end
 
