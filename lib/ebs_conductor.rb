@@ -169,7 +169,7 @@ module Rgeyer
           server = @@fog_aws_computes[region].servers.get(instance_id)
           # Check things out on AWS
           check_vol = server.block_device_mapping.select { |dev| dev['volumeId'] == new_vol.id }.first
-          keep_baking = true if check_vol || check_vol['status'] != "attached"
+          keep_baking = true if !check_vol || check_vol['status'] != "attached"
 
           # Check things out in RS if we've got RS credentials
           if @@have_rs
