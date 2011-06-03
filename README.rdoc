@@ -1,16 +1,39 @@
 = ebs_conductor
 
-Description goes here.
+The EBS Conductor is a library for managing Amazon Elastic Block Storage volumes and snapshots.  It is designed to persist a specific set of data (a "lineage") between different compute instances.
 
-== Contributing to ebs_conductor
- 
-* Check out the latest master to make sure the feature hasn't been implemented or the bug hasn't been fixed yet
-* Check out the issue tracker to make sure someone already hasn't requested it and/or contributed it
-* Fork the project
-* Start a feature/bugfix branch
-* Commit and push until you are happy with your contribution
-* Make sure to add tests for it. This is important so I don't break it in a future version unintentionally.
-* Please try not to mess with the Rakefile, version, or history. If you want to have your own version, or is otherwise necessary, that is fine, but please isolate to its own commit so I can cherry-pick around it.
+EBS Conductor can be used on it's own, but it's most powerful when executed on an EC2 instance using Chef, and the ebs_conductor cookbook[https://github.com/rgeyer/cookbooks/tree/master/cookbooks/ebs_conductor]
+
+== Examples
+
+=== Attach a new 1GB blan volume in the lineage "foobar" to a linux box at /dev/sdb1
+
+    ebs_conductor = Rgeyer::Gem::EbsConductor.new('...','...')
+    ebs_conductor.attach_from_lineage('i-abcd1234', 'foobar', 1, '/dev/sdb1')
+
+=== Attach a specific snapshot to a 1GB volume in the lineage "foobar" to a linux box at /devb/sdb1
+
+    ebs_conductor = Rgeyer::Gem::EbsConductor.new('...','...')
+    ebs_conductor.attach_from_lineage('i-abcd1234', 'foobar', 1, '/dev/sdb1' {:snapshot_id => 'snap-abcd1234'})
+
+=== Snapshot the lineage "foobar", do not purge any old snapshots in the lineage
+
+    ebs_conductor = Rgeyer::Gem::EbsConductor.new('...','...')
+    ebs_conductor.snapshot_lineage('foobar')
+
+=== Snapshot the lineage "foobar", and purge old snapshots so that only 7 remain
+
+    ebs_conductor = Rgeyer::Gem::EbsConductor.new('...','...')
+    ebs_conductor.snapshot_lineage('foobar', {:history_to_keep => 7})
+
+=== Snapshot the lineage "foobar" from the specified volume_id
+This is useful if you're trying to start a lineage from a "naked" instance, or if you are trying to create a new lineage from an existing one
+
+    ebs_conductor = Rgeyer::Gem::EbsConductor.new('...','...')
+    ebs_conductor.snapshot_lineage('foobar', {:history_to_keep => 7, :volume_id => 'vol-abcd1234'})
+
+== TODO
+* Support for stripes in a lineage
 
 == Copyright
 

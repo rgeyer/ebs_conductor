@@ -26,6 +26,31 @@ module Rgeyer
       @@default_timeout = 5*60
       @@timeout_backoff = [2,5,10,15]
 
+      # Instantiates a new EbsConductor
+      #
+      # Amazon Web Services (AWS) credentials are required.  RightScale credentials are optional, if provided all
+      # objects (volumes & snapshots) will be tagged in both EC2 and RightScale
+      #
+      # == Parameters
+      # * *aws_access_key_id* : The access key ID for the AWS API.
+      # * *aws_secret_access_key* : The secret access key (password) for the AWS API.
+      #
+      # === Options
+      # * :rs_email => 'foo@bar.baz' : The email address of a RightScale user with permissions to tag volumes & snapshots
+      # * :rs_pass => 'supersecret' : The password of a RightScale user with permissions to tag volumes & snapshots
+      # * :rs_acct_num => 123456 : Your RightScale account number
+      # * :logger => A logger object
+      #
+      # == Examples
+      # Create an EBS conductor which will only tag objects in EC2
+      #     Rgeyer::Gem::EbsConductor.new('...','...')
+      #
+      # Create an EBS conductor which will tag objects in EC2 and RightScale
+      #     Rgeyer::Gem::EbsConductor.new('...','...',{:rs_email => '...', :rs_pass => '...', :rs_acct_num => 123456})
+      #
+      # Create an EBS conductor which will tag objects in EC2 and RightScale, and log to Chef::Log
+      #     Rgeyer::Gem::EbsConductor.new('...','...',{:rs_email => '...', :rs_pass => '...', :rs_acct_num => 123456, :logger => Chef::Log })
+      #
       def initialize(aws_access_key_id, aws_secret_access_key, options={:rs_email => nil, :rs_pass => nil, :rs_acct_num => nil})
         if options[:logger]
           @@logger = options[:logger]
@@ -81,64 +106,35 @@ module Rgeyer
         end
       end
 
-      def find_instance_by_id(instance_id)
-        @@fog_aws_computes.each do |key,val|
-          srv = val.servers.get(instance_id)
-          if srv
-            return { :server => srv, :region => key }
-          end
-        end
-        nil
-      end
-
-      def find_volume_by_id(volume_id, options={:region => nil})
-        if options[:region]
-          return {:volume => @@fog_aws_computes[options[:region]].volumes.get(volume_id), :region => options[:region]}
-        else
-          @@fog_aws_computes.each do |key,val|
-            vol = val.volumes.get(volume_id)
-            if vol
-              return {:volume => vol, :region => key}
-            end
-          end
-        end
-
-        nil
-      end
-
-      def find_volumes_by_lineage(lineage)
-        vols = {}
-        @@fog_aws_computes.each do |key,val|
-          volz = val.volumes
-          vols[key] = volz.all('tag-key' => lineage_tag(lineage))
-        end
-
-        vols
-      end
-
-      def find_snapshots_in_lineage(lineage, options={:region => nil})
-        snaps = {}
-        if options[:region] != nil
-          snapshots_in_lineage = @@fog_aws_computes[options[:region]].snapshots.all('tag-key' => lineage_tag(lineage))
-          if snapshots_in_lineage
-            snaps[options[:region]] = snapshots_in_lineage
-          end
-        else
-          @@fog_aws_computes.each do |region,compute|
-            snapshots_in_lineage = compute.snapshots.all('tag-key' => lineage_tag(lineage))
-            if snapshots_in_lineage
-              snaps[region] = snapshots_in_lineage
-            end
-          end
-        end
-
-        snaps
-      end
-
+      # Attaches a volume from the specified lineage to the specified EC2 instance.
+      #
+      # The source of the new volume is as follows (in order of preference)
+      # * A new volume from the :snapshot_id option (if supplied)
+      # * The newest snapshot created by ebs_conductor for the specified lineage, provided it is in the same region as the server
+      # * A new blank volume
+      #
+      # == Parameters
+      # * *instance_id* : The AWS id of the server instance which should have the new volume attached.  I.E. i-[0-9a-z]{8}
+      # * *lineage* : The name of the lineage to attach.  *NOTE*: The lineage must be unique to an AWS account to avoid problems!
+      # * *size_in_gb* : The size of the new volume, measured in gigabytes (GB)
+      # * *device* : A valid device that the new volume will be attached to.  For Windows this is xvdf - xvdp, and for Linux it is /dev/sdb - /dev/sdp
+      #
+      # === Options
+      # * :timeout => @@default_timeout : The timeout in seconds before EBS conductor should stop waiting for a volume to be created and attached.  The default is 5 minutes
+      # * :snapshot_id => '...' : The AWS ID of a snapshot to create the new volume from.  I.E. snap-[0-9a-z]{8}
+      # * :tags => [] : An array of strings which will be applied as additional tags to the new volume.  I.E. ["foo:bar=baz", "database:name=sweet"]
+      #
+      # == Examples
+      # All examples assume that a new EBS conductor has been created and is assigned to *ebs_conductor*
+      #     ebs_conductor = Rgeyer::Gem::EbsConductor.new('...','...')
+      #
+      # Attach a new 1GB blank volume in the lineage "foobar" to a linux box at /dev/sdb1
+      #     ebs_conductor.attach_from_lineage('i-abcd1234', 'foobar', 1, '/dev/sdb1')
+      #
+      # Attach a specific snapshot to a 1GB volume in the lineage "foobar" to a linux box at /devb/sdb1
+      #     ebs_conductor.attach_from_lineage('i-abcd1234', 'foobar', 1, '/dev/sdb1' {:snapshot_id => 'snap-abcd1234'})
+      #
       def attach_from_lineage(instance_id, lineage, size_in_gb, device, options={:timeout => @@default_timeout, :snapshot_id => nil, :tags => nil})
-        # Explore our options.
-        # if snapshot_id is supplied and is a snapshot id, try to create & attach it
-        # Find the newest available snapshot in the lineage and attach if available
 
         lineage_tag_key = lineage_tag(lineage)
 
@@ -190,10 +186,31 @@ module Rgeyer
         new_vol.id
       end
 
-      # Snapshot history to keep is unique to each region.  If a volume_id is specified, the new snapshot will be tagged
-      # with the supplied lineage, regardless of the volume's current lineage.  This effectively allows you to override the lineage of a volume
+      # Creates a new snapshot of the specified lineage.  Optionally purges previous snapshots in the lineage based on the :history_to_keep option
       #
-      def snapshot_lineage(lineage, options={:timeout => @@default_timeout, :tags => nil, :volume_id => nil, :history_to_keep => nil})
+      # == Parameters
+      # * *lineage*: The name of the lineage to snapshot.  *NOTE*: The lineage must be unique to an AWS account to avoid problems!
+      #
+      # === Options
+      # * :timeout => @@default_timeout : The timeout in seconds before EBS conductor should stop waiting for a volume to be created and attached.  The default is 5 minutes
+      # * :volume_id => '...' : The AWS ID of a volume to create the snapshot of.  I.E. vol-[0-9a-z]{8}
+      # * :history_to_keep => 7 : If supplied only :history_to_keep snapshots will be kept for the lineage.  If there are more than :history_to_keep snapshots for the lineage, the oldest ones are deleted
+      # * :tags => [] : An array of strings which will be applied as additional tags to the new snapshot.  I.E. ["foo:bar=baz", "database:name=sweet"]
+      #
+      # == Examples
+      # All examples assume that a new EBS conductor has been created and is assigned to *ebs_conductor*
+      #     ebs_conductor = Rgeyer::Gem::EbsConductor.new('...','...')
+      #
+      # Snapshot the lineage "foobar", do not purge any old snapshots in the lineage
+      #     ebs_conductor.snapshot_lineage('foobar')
+      #
+      # Snapshot the lineage "foobar", and purge old snapshots so that only 7 remain
+      #     ebs_conductor.snapshot_lineage('foobar', {:history_to_keep => 7})
+      #
+      # Snapshot the lineage "foobar" from the specified volume_id.  This is useful if you're trying to start a lineage from a "naked" instance, or if you are trying to create a new lineage from an existing one
+      #     ebs_conductor.snapshot_lineage('foobar', {:history_to_keep => 7, :volume_id => 'vol-abcd1234'})
+      #
+      def snapshot_lineage(lineage, options={:timeout => @@default_timeout, :volume_id => nil, :history_to_keep => nil, :tags => nil})
         vol_hash = {}
         tag_hash ={}
         if options[:volume_id]
@@ -257,6 +274,60 @@ module Rgeyer
       end
 
       private
+
+      def find_instance_by_id(instance_id)
+        @@fog_aws_computes.each do |key,val|
+          srv = val.servers.get(instance_id)
+          if srv
+            return { :server => srv, :region => key }
+          end
+        end
+        nil
+      end
+
+      def find_volume_by_id(volume_id, options={:region => nil})
+        if options[:region]
+          return {:volume => @@fog_aws_computes[options[:region]].volumes.get(volume_id), :region => options[:region]}
+        else
+          @@fog_aws_computes.each do |key,val|
+            vol = val.volumes.get(volume_id)
+            if vol
+              return {:volume => vol, :region => key}
+            end
+          end
+        end
+
+        nil
+      end
+
+      def find_volumes_by_lineage(lineage)
+        vols = {}
+        @@fog_aws_computes.each do |key,val|
+          volz = val.volumes
+          vols[key] = volz.all('tag-key' => lineage_tag(lineage))
+        end
+
+        vols
+      end
+
+      def find_snapshots_in_lineage(lineage, options={:region => nil})
+        snaps = {}
+        if options[:region] != nil
+          snapshots_in_lineage = @@fog_aws_computes[options[:region]].snapshots.all('tag-key' => lineage_tag(lineage))
+          if snapshots_in_lineage
+            snaps[options[:region]] = snapshots_in_lineage
+          end
+        else
+          @@fog_aws_computes.each do |region,compute|
+            snapshots_in_lineage = compute.snapshots.all('tag-key' => lineage_tag(lineage))
+            if snapshots_in_lineage
+              snaps[region] = snapshots_in_lineage
+            end
+          end
+        end
+
+        snaps
+      end
 
       def block_until_timeout(timeout_message, timeout, &block)
         begin
