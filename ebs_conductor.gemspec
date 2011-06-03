@@ -44,7 +44,7 @@ This is useful if you're trying to start a lineage from a "naked" instance, or i
     ebs_conductor = Rgeyer::Gem::EbsConductor.new('...','...')
     ebs_conductor.snapshot_lineage('foobar', {:history_to_keep => 7, :volume_id => 'vol-abcd1234'})
 
-== TODO
+== List of To Do Items
 * Support for stripes in a lineage
 
 == Copyright
@@ -66,6 +66,7 @@ further details.
     "README.rdoc",
     "Rakefile",
     "VERSION",
+    "ebs_conductor.gemspec",
     "lib/ebs_conductor.rb",
     "test/helper.rb"
   ]
