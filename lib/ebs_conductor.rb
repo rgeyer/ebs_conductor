@@ -25,6 +25,7 @@ module Rgeyer
       @@logger = nil
       @@default_timeout = 5*60
       @@timeout_backoff = [2,5,10,15]
+      @@rs_region_hash = {'us-east-1' => 1, 'eu-west-1' => 2, 'us-west-1' => 3, 'ap-northeast-1' => 4, 'ap-southeast-1' => 5}
 
       # Instantiates a new EbsConductor
       #
@@ -67,11 +68,12 @@ module Rgeyer
         })
 
         if options[:rs_email] && options[:rs_pass] && options[:rs_acct_num]
+          pass = options[:rs_pass].gsub('"', '\\"')
           ::RightScale::Api::BaseExtend.class_eval <<-EOF
           @@connection ||= RestConnection::Connection.new
             @@connection.settings = {
               :user => "#{options[:rs_email]}",
-              :pass => "#{options[:rs_pass]}",
+              :pass => "#{pass}",
               :api_url => "https://my.rightscale.com/api/acct/#{options[:rs_acct_num]}",
               :common_headers => {
                 "X_API_VERSION" => "1.0"
@@ -82,7 +84,7 @@ module Rgeyer
           @@connection ||= RestConnection::Connection.new
             @@connection.settings = {
               :user => "#{options[:rs_email]}",
-              :pass => "#{options[:rs_pass]}",
+              :pass => "#{pass}",
               :api_url => "https://my.rightscale.com/api/acct/#{options[:rs_acct_num]}",
               :common_headers => {
                 "X_API_VERSION" => "1.0"
@@ -162,14 +164,18 @@ module Rgeyer
         timeout_message = "Timed out waiting for EBS volume to be created and attached to (#{server.id}).  Elapsed time was #{options[:timeout]} seconds"
         block_until_timeout(timeout_message, options[:timeout]) {
           keep_baking = false
-          server = @@fog_aws_computes[region].servers.get(instance_id)
-          # Check things out on AWS
-          check_vol = server.block_device_mapping.select { |dev| dev['volumeId'] == new_vol.id }.first
-          keep_baking = true if !check_vol || check_vol['status'] != "attached"
+          ec2_found = false
+          unless ec2_found
+            server = @@fog_aws_computes[region].servers.get(instance_id)
+            # Check things out on AWS
+            check_vol = server.block_device_mapping.select { |dev| dev['volumeId'] == new_vol.id }.first
+            keep_baking = true if !check_vol || check_vol['status'] != "attached"
+            ec2_found = !keep_baking
+          end
 
           # Check things out in RS if we've got RS credentials
           if @@have_rs
-            vol = Ec2EbsVolume.find(:first) { |vol| vol.aws_id == new_vol.id }
+            vol = Ec2EbsVolume.find_by_cloud_id(@@rs_region_hash[region]).select { |v| v.aws_id == new_vol.id }.first
             keep_baking = (vol == nil)
           end
 
@@ -223,7 +229,7 @@ module Rgeyer
         vol_hash.each do |region,vols|
           # TODO: warn about multiples in a region?
           vols.each do |vol|
-            if ["available", "in-use"].include? vol.status
+            if ["available", "in-use"].include? vol.state
               description = "Created by EBS Conductor for the (#{lineage}) lineage while the volume was #{vol.server_id ? "attached to #{vol.server_id}" : "detatched"}"
 
               excon_resp = @@fog_aws_computes[region].create_snapshot(vol.id, description)
@@ -231,7 +237,7 @@ module Rgeyer
 
               tags = options[:tags] || []
               tags << lineage_tag(lineage)
-              tag_hash[snapshot_id] = {:snapshot_tags => tags, :volume_tags => vol.tags.keys}
+              tag_hash[snapshot_id] = {:snapshot_tags => tags, :volume_tags => vol.tags.keys, :region => region}
             else
               @@logger.warn("Volume (#{vol.id}) had a status of (#{vol.status}).  A snapshot could not be created..")
             end
@@ -243,7 +249,12 @@ module Rgeyer
           keep_baking = false
 
           if @@have_rs
-            snaps = Ec2EbsSnapshot.find(:all) { |snap| tag_hash.keys.include? snap.aws_id }
+            snaps = []
+            tag_hash.each do |snapshot_id,val_hash|
+              snap = Ec2EbsSnapshot.find_by_cloud_id(@@rs_region_hash[val_hash[:region]]).select { |s| snapshot_id == s.aws_id }.first
+              snaps << snap if snap
+            end
+            #snaps = Ec2EbsSnapshot.find_by_cloud_id(:all) { |snap| tag_hash.keys.include? snap.aws_id }
             keep_baking = (snaps.count != tag_hash.keys.count)
           end
 
@@ -330,6 +341,7 @@ module Rgeyer
       end
 
       def block_until_timeout(timeout_message, timeout, &block)
+        @@logger.info("Entered block_until and timeout is (#{timeout})")
         begin
           idx=0
           Timeout::timeout(timeout) do
