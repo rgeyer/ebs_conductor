@@ -176,7 +176,7 @@ module Rgeyer
           # Check things out in RS if we've got RS credentials
           if @@have_rs
             vol = Ec2EbsVolume.find_by_cloud_id(@@rs_region_hash[region]).select { |v| v.aws_id == new_vol.id }.first
-            keep_baking = (vol == nil)
+            keep_baking = true if (vol == nil)
           end
 
           keep_baking
@@ -341,7 +341,6 @@ module Rgeyer
       end
 
       def block_until_timeout(timeout_message, timeout, &block)
-        @@logger.info("Entered block_until and timeout is (#{timeout})")
         begin
           idx=0
           Timeout::timeout(timeout) do
