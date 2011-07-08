@@ -5,11 +5,11 @@
 
 Gem::Specification.new do |s|
   s.name = %q{ebs_conductor}
-  s.version = "0.0.3"
+  s.version = "0.0.4"
 
   s.required_rubygems_version = Gem::Requirement.new(">= 0") if s.respond_to? :required_rubygems_version=
   s.authors = ["Ryan Geyer"]
-  s.date = %q{2011-06-22}
+  s.date = %q{2011-07-08}
   s.description = %q{= ebs_conductor
 
 The EBS Conductor is a library for managing Amazon Elastic Block Storage volumes and snapshots.  It is designed to persist a specific set of data (a "lineage") between different compute instances.
@@ -73,7 +73,7 @@ further details.
   s.homepage = %q{http://github.com/rgeyer/ebs_conductor}
   s.licenses = ["MIT"]
   s.require_paths = ["lib"]
-  s.rubygems_version = %q{1.5.2}
+  s.rubygems_version = %q{1.6.2}
   s.summary = %q{A RightScale/Amazon EC2 EBS library}
   s.test_files = [
     "test/helper.rb"
@@ -83,16 +83,16 @@ further details.
     s.specification_version = 3
 
     if Gem::Version.new(Gem::VERSION) >= Gem::Version.new('1.2.0') then
-      s.add_runtime_dependency(%q<fog>, ["~> 0.8.2"])
-      s.add_runtime_dependency(%q<skeme>, ["~> 0.0.6"])
+      s.add_runtime_dependency(%q<fog>, ["~> 0.9.0"])
+      s.add_runtime_dependency(%q<skeme>, ["~> 0.0.7"])
       s.add_runtime_dependency(%q<rest_connection>, [">= 0.0.21"])
       s.add_development_dependency(%q<shoulda>, [">= 0"])
       s.add_development_dependency(%q<bundler>, ["~> 1.0.0"])
       s.add_development_dependency(%q<jeweler>, ["~> 1.5.2"])
       s.add_development_dependency(%q<rcov>, [">= 0"])
     else
-      s.add_dependency(%q<fog>, ["~> 0.8.2"])
-      s.add_dependency(%q<skeme>, ["~> 0.0.6"])
+      s.add_dependency(%q<fog>, ["~> 0.9.0"])
+      s.add_dependency(%q<skeme>, ["~> 0.0.7"])
       s.add_dependency(%q<rest_connection>, [">= 0.0.21"])
       s.add_dependency(%q<shoulda>, [">= 0"])
       s.add_dependency(%q<bundler>, ["~> 1.0.0"])
@@ -100,8 +100,8 @@ further details.
       s.add_dependency(%q<rcov>, [">= 0"])
     end
   else
-    s.add_dependency(%q<fog>, ["~> 0.8.2"])
-    s.add_dependency(%q<skeme>, ["~> 0.0.6"])
+    s.add_dependency(%q<fog>, ["~> 0.9.0"])
+    s.add_dependency(%q<skeme>, ["~> 0.0.7"])
     s.add_dependency(%q<rest_connection>, [">= 0.0.21"])
     s.add_dependency(%q<shoulda>, [">= 0"])
     s.add_dependency(%q<bundler>, ["~> 1.0.0"])
